@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DB Manage — Projects</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:#f3f5f9;color:#172033}
 header{background:linear-gradient(135deg,#0b1220,#18263d);color:white;padding:22px 24px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 4px 18px #10182818}
@@ -30,8 +31,28 @@ input,select{width:100%;padding:12px;border:1px solid #d0d5dd;border-radius:10px
 </style>
 </head>
 <body>
-<header><div><h1>DB Manage</h1><div class="sub">Clients & Projects</div></div><button class="primary" onclick="openModal()">+ New Project</button></header>
-<main>
+<header>
+<div><h1>DB Manage</h1><div class="sub">Clients & Projects</div></div>
+<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+  <span id="syncStatus" style="font-size:12px;color:#98a2b3">Not connected</span>
+  <button class="secondary" id="logoutBtn" style="display:none" onclick="logout()">Log out</button>
+  <button class="primary" id="newProjectBtn" style="display:none" onclick="openModal()">+ New Project</button>
+</div>
+</header>
+<div id="authScreen" style="max-width:430px;margin:55px auto;padding:0 18px">
+  <div class="box" style="box-shadow:0 8px 30px #10182814;border:1px solid #e5e9f0">
+    <h2 style="margin:0">DB Manage Login</h2>
+    <p style="color:#667085;font-size:13px;line-height:1.5">Sign in on your phone and computer with the same account. Your projects will be stored in one shared database.</p>
+    <label>Email</label><input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com">
+    <label>Password</label><input id="authPassword" type="password" autocomplete="current-password" placeholder="Password">
+    <div class="modal-actions" style="justify-content:stretch">
+      <button class="primary" style="flex:1" onclick="signIn()">Sign In</button>
+      <button class="secondary" style="flex:1" onclick="signUp()">Create Account</button>
+    </div>
+    <div id="authMessage" style="margin-top:12px;font-size:13px;color:#667085"></div>
+  </div>
+</div>
+<main id="appMain" style="display:none">
 <div class="summary"><div class="summary-box"><div class="summary-label">Create Design</div><div class="summary-total" id="totalCreate">0</div></div><div class="summary-box"><div class="summary-label">Start Printing</div><div class="summary-total" id="totalPrint">0</div></div><div class="summary-box"><div class="summary-label">In Progress</div><div class="summary-total" id="totalProgress">0</div></div><div class="summary-box"><div class="summary-label">Done</div><div class="summary-total" id="totalDone">0</div></div></div>
 <div class="toolbar"><button class="secondary" onclick="clearAll()">Clear all projects</button></div>
 <div class="board" id="board"></div>
@@ -46,46 +67,303 @@ input,select{width:100%;padding:12px;border:1px solid #d0d5dd;border-radius:10px
 <div class="modal-actions"><button class="secondary" onclick="closeModal()">Cancel</button><button class="primary" onclick="addProject()">Add Project</button></div>
 </div></div>
 
+
 <script>
+/*
+  DB Manage — shared cloud version
+  1) Create a Supabase project.
+  2) Run the SQL in supabase-setup.sql.
+  3) Put your Project URL and Publishable/Anon key below.
+*/
+const SUPABASE_URL = "PASTE_YOUR_SUPABASE_PROJECT_URL_HERE";
+const SUPABASE_KEY = "PASTE_YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY_HERE";
+
 const statuses=["Create Design","Start Printing","In Progress","Done"];
-let projects=JSON.parse(localStorage.getItem("divineProjects")||"[]");
-function save(){localStorage.setItem("divineProjects",JSON.stringify(projects))}
+const localKey = "divineProjects";
+let projects = [];
+let currentUser = null;
+let realtimeChannel = null;
+
+const supabaseConfigured =
+  SUPABASE_URL.startsWith("https://") &&
+  !SUPABASE_URL.includes("PASTE_YOUR") &&
+  !SUPABASE_KEY.includes("PASTE_YOUR");
+
+const supabaseClient = supabaseConfigured
+  ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    })
+  : null;
+
+function setSyncStatus(text, good=false){
+  const el=document.getElementById("syncStatus");
+  el.textContent=text;
+  el.style.color=good ? "#12b76a" : "#98a2b3";
+}
+
+function showAuthMessage(text, error=false){
+  const el=document.getElementById("authMessage");
+  el.textContent=text;
+  el.style.color=error ? "#b42318" : "#667085";
+}
+
+function showApp(){
+  document.getElementById("authScreen").style.display="none";
+  document.getElementById("appMain").style.display="block";
+  document.getElementById("newProjectBtn").style.display="inline-block";
+  document.getElementById("logoutBtn").style.display="inline-block";
+}
+
+function showAuth(){
+  document.getElementById("authScreen").style.display="block";
+  document.getElementById("appMain").style.display="none";
+  document.getElementById("newProjectBtn").style.display="none";
+  document.getElementById("logoutBtn").style.display="none";
+}
+
+async function signIn(){
+  if(!supabaseClient){ return showAuthMessage("Add your Supabase URL and key to the file first.", true); }
+  const email=document.getElementById("authEmail").value.trim();
+  const password=document.getElementById("authPassword").value;
+  if(!email || !password) return showAuthMessage("Enter your email and password.", true);
+  showAuthMessage("Signing in...");
+  const {error}=await supabaseClient.auth.signInWithPassword({email,password});
+  if(error) showAuthMessage(error.message,true);
+}
+
+async function signUp(){
+  if(!supabaseClient){ return showAuthMessage("Add your Supabase URL and key to the file first.", true); }
+  const email=document.getElementById("authEmail").value.trim();
+  const password=document.getElementById("authPassword").value;
+  if(!email || !password) return showAuthMessage("Enter an email and password.", true);
+  if(password.length < 6) return showAuthMessage("Use a password with at least 6 characters.", true);
+  showAuthMessage("Creating your account...");
+  const {data,error}=await supabaseClient.auth.signUp({email,password});
+  if(error) return showAuthMessage(error.message,true);
+  if(data.session) {
+    showAuthMessage("Account created.");
+  } else {
+    showAuthMessage("Account created. Check your email if confirmation is required, then sign in.");
+  }
+}
+
+async function logout(){
+  if(supabaseClient) await supabaseClient.auth.signOut();
+}
+
+async function loadProjects(){
+  if(!currentUser) return;
+  setSyncStatus("Syncing…");
+  const {data,error}=await supabaseClient
+    .from("projects")
+    .select("id,client,vehicle,vehicle_type,due_date,status,created_at,updated_at")
+    .eq("user_id",currentUser.id)
+    .order("created_at",{ascending:true});
+
+  if(error){
+    console.error(error);
+    setSyncStatus("Sync error");
+    return;
+  }
+
+  projects=(data||[]).map(p=>({
+    id:Number(p.id),
+    client:p.client,
+    vehicle:p.vehicle,
+    vehicleType:p.vehicle_type || "",
+    dueDate:p.due_date || "",
+    status:p.status
+  }));
+
+  localStorage.setItem(localKey,JSON.stringify(projects));
+  render();
+  setSyncStatus("Synced ✓",true);
+}
+
+async function migrateLocalProjects(){
+  const raw=localStorage.getItem(localKey);
+  if(!raw) return;
+  let local=[];
+  try { local=JSON.parse(raw)||[]; } catch(e) { return; }
+  if(!local.length) return;
+
+  // Only offer migration when the shared database is empty.
+  const {count,error}=await supabaseClient
+    .from("projects")
+    .select("id",{count:"exact",head:true})
+    .eq("user_id",currentUser.id);
+
+  if(error || count !== 0) return;
+
+  const rows=local.map(p=>({
+    id:Number(p.id)||Date.now()+Math.floor(Math.random()*100000),
+    user_id:currentUser.id,
+    client:p.client||"",
+    vehicle:p.vehicle||"Van",
+    vehicle_type:p.vehicleType||"",
+    due_date:p.dueDate||null,
+    status:p.status||"Create Design"
+  })).filter(p=>p.client);
+
+  if(!rows.length) return;
+
+  const {error:insertError}=await supabaseClient.from("projects").insert(rows);
+  if(insertError){
+    console.error(insertError);
+    alert("Your old local projects could not be migrated: "+insertError.message);
+    return;
+  }
+  localStorage.removeItem(localKey);
+}
+
+async function addProject(){
+  const client=document.getElementById("client").value.trim();
+  if(!client)return alert("Enter a client name.");
+
+  const row={
+    id:Date.now(),
+    user_id:currentUser.id,
+    client,
+    vehicle:document.getElementById("vehicle").value,
+    vehicle_type:document.getElementById("vehicleType").value.trim(),
+    due_date:document.getElementById("dueDate").value || null,
+    status:"Create Design"
+  };
+
+  const {error}=await supabaseClient.from("projects").insert(row);
+  if(error){ alert("Could not save project: "+error.message); return; }
+
+  closeModal();
+  document.getElementById("client").value="";
+  document.getElementById("vehicleType").value="";
+  document.getElementById("dueDate").value="";
+  await loadProjects();
+}
+
+async function move(id,status){
+  const {error}=await supabaseClient
+    .from("projects")
+    .update({status,updated_at:new Date().toISOString()})
+    .eq("id",id)
+    .eq("user_id",currentUser.id);
+
+  if(error){ alert("Could not update project: "+error.message); return; }
+  await loadProjects();
+}
+
+async function remove(id){
+  if(!confirm("Delete this project?")) return;
+  const {error}=await supabaseClient
+    .from("projects")
+    .delete()
+    .eq("id",id)
+    .eq("user_id",currentUser.id);
+
+  if(error){ alert("Could not delete project: "+error.message); return; }
+  await loadProjects();
+}
+
+async function clearAll(){
+  if(!projects.length || !confirm("Delete all projects?")) return;
+  const {error}=await supabaseClient
+    .from("projects")
+    .delete()
+    .eq("user_id",currentUser.id);
+
+  if(error){ alert("Could not clear projects: "+error.message); return; }
+  await loadProjects();
+}
+
 function openModal(){document.getElementById("modal").classList.add("open");document.getElementById("client").focus()}
 function closeModal(){document.getElementById("modal").classList.remove("open")}
-function addProject(){
- const client=document.getElementById("client").value.trim(); if(!client)return alert("Enter a client name.");
- projects.push({id:Date.now(),client,vehicle:document.getElementById("vehicle").value,vehicleType:document.getElementById("vehicleType").value.trim(),dueDate:document.getElementById("dueDate").value,status:"Create Design"});save();render();closeModal();document.getElementById("client").value="";
-}
-function move(id,status){const p=projects.find(x=>x.id===id);if(p){p.status=status;save();render()}}
-function remove(id){projects=projects.filter(x=>x.id!==id);save();render()}
-function clearAll(){if(projects.length && confirm("Delete all projects?")){projects=[];save();render()}}
+
 function render(){
- document.getElementById("totalCreate").textContent=projects.filter(p=>p.status==="Create Design").length;
- document.getElementById("totalPrint").textContent=projects.filter(p=>p.status==="Start Printing").length;
- document.getElementById("totalProgress").textContent=projects.filter(p=>p.status==="In Progress").length;
- document.getElementById("totalDone").textContent=projects.filter(p=>p.status==="Done").length;
- const board=document.getElementById("board"); board.innerHTML="";
- statuses.forEach(s=>{
-  const col=document.createElement("section");col.className="column";
-  const items=projects.filter(p=>p.status===s);
-  col.innerHTML=`<h2>${s}<span class="count">${items.length}</span></h2>`;
-  if(!items.length)col.innerHTML+=`<div class="empty">No projects here</div>`;
-  items.forEach(p=>{
-   const card=document.createElement("div");card.className="card";
-   card.innerHTML=`<div class="name">${esc(p.client)}</div><div class="type">${esc(p.vehicle)}${p.vehicleType?" · "+esc(p.vehicleType):""}</div>${p.dueDate?`<div style="margin-top:8px;font-size:12px;color:#667085">Due: ${new Date(p.dueDate+"T00:00:00").toLocaleDateString()}</div>`:""}
-   <div class="actions">
-    ${s!=="Create Design"?`<button class="secondary" onclick="move(${p.id},'Create Design')">← Design</button>`:""}
-    ${s==="Create Design"?`<button class="secondary" onclick="move(${p.id},'Start Printing')">Start Printing →</button>`:""}
-    ${s==="Start Printing"?`<button class="secondary" onclick="move(${p.id},'In Progress')">In Progress →</button>`:""}
-    ${s==="In Progress"?`<button class="secondary" onclick="move(${p.id},'Done')">Done →</button>`:""}
-    <button class="secondary" onclick="remove(${p.id})">Delete</button>
-   </div>`;
-   col.appendChild(card);
+  document.getElementById("totalCreate").textContent=projects.filter(p=>p.status==="Create Design").length;
+  document.getElementById("totalPrint").textContent=projects.filter(p=>p.status==="Start Printing").length;
+  document.getElementById("totalProgress").textContent=projects.filter(p=>p.status==="In Progress").length;
+  document.getElementById("totalDone").textContent=projects.filter(p=>p.status==="Done").length;
+
+  const board=document.getElementById("board");
+  board.innerHTML="";
+
+  statuses.forEach(s=>{
+    const col=document.createElement("section");
+    col.className="column";
+    const items=projects.filter(p=>p.status===s);
+    col.innerHTML=`<h2>${s}<span class="count">${items.length}</span></h2>`;
+    if(!items.length)col.innerHTML+=`<div class="empty">No projects here</div>`;
+
+    items.forEach(p=>{
+      const card=document.createElement("div");
+      card.className="card";
+      card.innerHTML=`<div class="name">${esc(p.client)}</div><div class="type">${esc(p.vehicle)}${p.vehicleType?" · "+esc(p.vehicleType):""}</div>${p.dueDate?`<div style="margin-top:8px;font-size:12px;color:#667085">Due: ${new Date(p.dueDate+"T00:00:00").toLocaleDateString()}</div>`:""}
+      <div class="actions">
+        ${s!=="Create Design"?`<button class="secondary" onclick="move(${p.id},'Create Design')">← Design</button>`:""}
+        ${s==="Create Design"?`<button class="secondary" onclick="move(${p.id},'Start Printing')">Start Printing →</button>`:""}
+        ${s==="Start Printing"?`<button class="secondary" onclick="move(${p.id},'In Progress')">In Progress →</button>`:""}
+        ${s==="In Progress"?`<button class="secondary" onclick="move(${p.id},'Done')">Done →</button>`:""}
+        <button class="secondary" onclick="remove(${p.id})">Delete</button>
+      </div>`;
+      col.appendChild(card);
+    });
+    board.appendChild(col);
   });
-  board.appendChild(col);
- })
 }
-function esc(x){return x.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
+function esc(x){return String(x??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
+async function startApp(){
+  if(!supabaseConfigured){
+    showAuth();
+    showAuthMessage("This copy is ready for Supabase. Open the setup guide, add your Project URL and Publishable/Anon key, then reload.",true);
+    return;
+  }
+
+  const {data:{session}}=await supabaseClient.auth.getSession();
+  if(session) await onSignedIn(session);
+
+  supabaseClient.auth.onAuthStateChange(async (_event,session)=>{
+    if(session) {
+      // Defer database work so auth state handling stays responsive.
+      setTimeout(()=>onSignedIn(session),0);
+    } else {
+      currentUser=null;
+      if(realtimeChannel) await supabaseClient.removeChannel(realtimeChannel);
+      realtimeChannel=null;
+      projects=[];
+      render();
+      showAuth();
+      setSyncStatus("Not connected");
+    }
+  });
+}
+
+async function onSignedIn(session){
+  currentUser=session.user;
+  showApp();
+  setSyncStatus("Connecting…");
+  await migrateLocalProjects();
+  await loadProjects();
+
+  if(realtimeChannel) await supabaseClient.removeChannel(realtimeChannel);
+
+  realtimeChannel=supabaseClient
+    .channel("db-manage-projects")
+    .on("postgres_changes",{
+      event:"*",
+      schema:"public",
+      table:"projects",
+      filter:`user_id=eq.${currentUser.id}`
+    },async ()=>{
+      await loadProjects();
+    })
+    .subscribe((status)=>{
+      if(status==="SUBSCRIBED") setSyncStatus("Live sync ✓",true);
+    });
+}
+
 render();
+startApp();
 </script>
+
 </body></html>
