@@ -450,7 +450,7 @@ async function loadVinyl(){
     return;
   }
   vinylRolls=(data||[]).map(r=>({
-    id:r.id, color:r.color,
+    id:String(r.id), color:r.color,
     rollLength:inchesToYards(r.roll_length_inches),
     remaining:inchesToYards(r.remaining_inches),
     swatch:r.swatch || "#111111",
@@ -530,10 +530,36 @@ async function updateVinylRoll(roll){
 let vinylUseRollId=null;
 let vinylEditRollId=null;
 
-function openVinylUseModal(id){
-  const roll=vinylRolls.find(r=>r.id===id);
-  if(!roll) return alert("Could not find that vinyl roll.");
-  vinylUseRollId=id;
+async function getVinylRollById(id){
+  if(!currentUser || !id) return null;
+  const {data,error}=await supabaseClient
+    .from(vinylTable)
+    .select("id,color,roll_length_inches,remaining_inches,swatch,created_at")
+    .eq("id",String(id))
+    .eq("user_id",currentUser.id)
+    .maybeSingle();
+
+  if(error){
+    console.error("Vinyl lookup error:",error);
+    alert("Could not find that vinyl roll: " + error.message);
+    return null;
+  }
+  if(!data) return null;
+
+  return {
+    id:String(data.id),
+    color:data.color,
+    rollLength:inchesToYards(data.roll_length_inches),
+    remaining:inchesToYards(data.remaining_inches),
+    swatch:data.swatch || "#111111",
+    createdAt:data.created_at
+  };
+}
+
+async function openVinylUseModal(id){
+  const roll=await getVinylRollById(id);
+  if(!roll) return alert("Could not find that vinyl roll. Please refresh Vinyl Management and try again.");
+  vinylUseRollId=String(roll.id);
   document.getElementById("vinylUseTitle").textContent=`${roll.color} • ${formatYards(roll.remaining)} yd currently remaining`;
   document.getElementById("vinylUseAmount").value="";
   document.getElementById("vinylUseRemaining").textContent="Enter the amount you printed. The remaining balance will be updated automatically.";
@@ -541,20 +567,34 @@ function openVinylUseModal(id){
   setTimeout(()=>document.getElementById("vinylUseAmount").focus(),50);
 }
 function closeVinylUseModal(){document.getElementById("vinylUseModal").classList.remove("open");vinylUseRollId=null;}
+
 async function saveVinylUse(){
-  const roll=vinylRolls.find(r=>r.id===vinylUseRollId);
-  if(!roll) return alert("Could not find that vinyl roll.");
+  const button=document.querySelector('#vinylUseModal .primary');
   const amount=parseFloat(document.getElementById("vinylUseAmount").value);
   if(!Number.isFinite(amount) || amount<=0) return alert("Enter a valid printed amount greater than 0.");
-  if(amount>roll.remaining) return alert(`You only have ${formatYards(roll.remaining)} yd remaining on this roll.`);
-  const updated={...roll,remaining:Math.max(0,roll.remaining-amount)};
-  const button=document.querySelector('#vinylUseModal .primary');
+
   button.disabled=true; button.textContent="Saving…";
-  try{if(await updateVinylRoll(updated)){closeVinylUseModal();await loadVinyl();}}finally{button.disabled=false;button.textContent="Save Amount";}
+  try{
+    // Fetch the latest copy from Supabase instead of relying on a possibly stale
+    // browser array. This prevents the "Could not find that vinyl roll" problem
+    // when realtime refreshes replace vinylRolls while the modal is being used.
+    const roll=await getVinylRollById(vinylUseRollId);
+    if(!roll) return;
+    if(amount>roll.remaining) return alert(`You only have ${formatYards(roll.remaining)} yd remaining on this roll.`);
+
+    const updated={...roll,remaining:Math.max(0,roll.remaining-amount)};
+    if(await updateVinylRoll(updated)){
+      closeVinylUseModal();
+      await loadVinyl();
+    }
+  }finally{
+    button.disabled=false;
+    button.textContent="Save Amount";
+  }
 }
 
 function openVinylEditModal(id){
-  const roll=vinylRolls.find(r=>r.id===id);
+  const roll=vinylRolls.find(r=>String(r.id)===String(id));
   if(!roll) return alert("Could not find that vinyl roll.");
   vinylEditRollId=id;
   document.getElementById("vinylEditTitle").textContent=`${roll.color} • Original roll: ${formatYards(roll.rollLength)} yd`;
@@ -564,7 +604,7 @@ function openVinylEditModal(id){
 }
 function closeVinylEditModal(){document.getElementById("vinylEditModal").classList.remove("open");vinylEditRollId=null;}
 async function saveVinylEdit(){
-  const roll=vinylRolls.find(r=>r.id===vinylEditRollId);
+  const roll=vinylRolls.find(r=>String(r.id)===String(vinylEditRollId));
   if(!roll) return alert("Could not find that vinyl roll.");
   const remaining=parseFloat(document.getElementById("vinylEditRemaining").value);
   if(!Number.isFinite(remaining) || remaining<0 || remaining>roll.rollLength) return alert("Enter a valid amount between 0 and the original roll length.");
@@ -575,7 +615,7 @@ async function saveVinylEdit(){
 }
 
 async function removeVinyl(id){
-  const roll=vinylRolls.find(r=>r.id===id);
+  const roll=vinylRolls.find(r=>String(r.id)===String(id));
   if(!roll) return;
   if(!confirm(`Delete the ${roll.color} vinyl roll?`)) return;
   const {error}=await supabaseClient.from(vinylTable)
