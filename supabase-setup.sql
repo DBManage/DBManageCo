@@ -53,76 +53,68 @@ begin
 end $$;
 
 
--- Vinyl Management
+-- VINYL MANAGEMENT
+-- Stores vinyl in Supabase so inventory syncs between phone and computer.
 create table if not exists public.vinyl_rolls (
-  id bigint primary key,
+  id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   color text not null,
-  roll_inches numeric(10,2) not null check (roll_inches > 0),
-  remaining_inches numeric(10,2) not null check (remaining_inches >= 0),
+  roll_length_inches numeric(12,2) not null check (roll_length_inches > 0),
+  remaining_inches numeric(12,2) not null check (remaining_inches >= 0),
+  swatch text not null default '#111111',
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint vinyl_remaining_not_over_roll check (remaining_inches <= roll_length_inches)
 );
 
-create table if not exists public.vinyl_usage (
-  id bigint primary key,
-  user_id uuid not null references auth.users(id) on delete cascade,
-  roll_id bigint not null references public.vinyl_rolls(id) on delete cascade,
-  used_inches numeric(10,2) not null check (used_inches > 0),
-  remaining_inches numeric(10,2) not null check (remaining_inches >= 0),
-  created_at timestamptz not null default now()
-);
+-- If the table already existed from an earlier vinyl version, make sure
+-- the columns required by the current app exist.
+alter table public.vinyl_rolls
+  add column if not exists color text;
+alter table public.vinyl_rolls
+  add column if not exists roll_length_inches numeric(12,2);
+alter table public.vinyl_rolls
+  add column if not exists remaining_inches numeric(12,2);
+alter table public.vinyl_rolls
+  add column if not exists swatch text default '#111111';
+alter table public.vinyl_rolls
+  add column if not exists created_at timestamptz default now();
+alter table public.vinyl_rolls
+  add column if not exists updated_at timestamptz default now();
 
 alter table public.vinyl_rolls enable row level security;
-alter table public.vinyl_usage enable row level security;
 
 grant select, insert, update, delete on public.vinyl_rolls to authenticated;
-grant select, insert, update, delete on public.vinyl_usage to authenticated;
 
 drop policy if exists "Users can view their own vinyl rolls" on public.vinyl_rolls;
 create policy "Users can view their own vinyl rolls"
-on public.vinyl_rolls for select to authenticated using (auth.uid() = user_id);
+on public.vinyl_rolls for select to authenticated
+using (auth.uid() = user_id);
 
 drop policy if exists "Users can insert their own vinyl rolls" on public.vinyl_rolls;
 create policy "Users can insert their own vinyl rolls"
-on public.vinyl_rolls for insert to authenticated with check (auth.uid() = user_id);
+on public.vinyl_rolls for insert to authenticated
+with check (auth.uid() = user_id);
 
 drop policy if exists "Users can update their own vinyl rolls" on public.vinyl_rolls;
 create policy "Users can update their own vinyl rolls"
-on public.vinyl_rolls for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+on public.vinyl_rolls for update to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
 
 drop policy if exists "Users can delete their own vinyl rolls" on public.vinyl_rolls;
 create policy "Users can delete their own vinyl rolls"
-on public.vinyl_rolls for delete to authenticated using (auth.uid() = user_id);
-
-drop policy if exists "Users can view their own vinyl usage" on public.vinyl_usage;
-create policy "Users can view their own vinyl usage"
-on public.vinyl_usage for select to authenticated using (auth.uid() = user_id);
-
-drop policy if exists "Users can insert their own vinyl usage" on public.vinyl_usage;
-create policy "Users can insert their own vinyl usage"
-on public.vinyl_usage for insert to authenticated with check (auth.uid() = user_id);
-
-drop policy if exists "Users can update their own vinyl usage" on public.vinyl_usage;
-create policy "Users can update their own vinyl usage"
-on public.vinyl_usage for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
-drop policy if exists "Users can delete their own vinyl usage" on public.vinyl_usage;
-create policy "Users can delete their own vinyl usage"
-on public.vinyl_usage for delete to authenticated using (auth.uid() = user_id);
+on public.vinyl_rolls for delete to authenticated
+using (auth.uid() = user_id);
 
 do $$
 begin
   if not exists (
     select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'vinyl_rolls'
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'vinyl_rolls'
   ) then
     alter publication supabase_realtime add table public.vinyl_rolls;
-  end if;
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'vinyl_usage'
-  ) then
-    alter publication supabase_realtime add table public.vinyl_usage;
   end if;
 end $$;

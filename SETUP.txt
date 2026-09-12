@@ -21,3 +21,18 @@ Security:
 - The browser uses only the public/publishable (or anon) key.
 - Row Level Security limits project rows to the signed-in user.
 - Do NOT put a service_role/secret key in index.html.
+
+
+VINYL MANAGEMENT
+----------------
+The updated index.html includes a Vinyl Management page.
+It tracks:
+- Vinyl color
+- Original roll length in yards
+- Current remaining yards
+- Amount printed/used (deducted from the remaining amount)
+
+Vinyl inventory is stored in Supabase in the `vinyl_rolls` table,
+so the inventory is shared between your phone and computer for the same account.
+Run the complete updated supabase-setup.sql in Supabase SQL Editor before using
+Vinyl Management.
