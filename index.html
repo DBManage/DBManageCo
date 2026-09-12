@@ -47,6 +47,7 @@ input,select{width:100%;padding:12px;border:1px solid #d0d5dd;border-radius:10px
 .vinyl-actions button{font-size:12px;padding:7px 9px}
 .vinyl-low{color:#b42318}
 .vinyl-empty{background:#fff;border:1px dashed #d0d5dd;border-radius:16px;padding:45px;text-align:center;color:#667085}
+.amount-help{font-size:13px;color:#667085;line-height:1.45;margin-top:6px}
 @media(max-width:980px){.vinyl-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:760px){.vinyl-grid{grid-template-columns:1fr}.vinyl-meta{grid-template-columns:1fr 1fr}}
 
@@ -105,6 +106,23 @@ input,select{width:100%;padding:12px;border:1px solid #d0d5dd;border-radius:10px
 <div class="modal-actions"><button class="secondary" onclick="closeVinylModal()">Cancel</button><button class="primary" onclick="addVinyl()">Add Vinyl</button></div>
 </div></div>
 
+<div class="modal" id="vinylUseModal"><div class="box">
+<h2 style="margin:0">Enter Printed Amount</h2>
+<div id="vinylUseTitle" class="amount-help"></div>
+<label>Amount printed / used (yards)</label>
+<input id="vinylUseAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Example: 2.5">
+<div id="vinylUseRemaining" class="amount-help"></div>
+<div class="modal-actions"><button class="secondary" onclick="closeVinylUseModal()">Cancel</button><button class="primary" onclick="saveVinylUse()">Save Amount</button></div>
+</div></div>
+
+<div class="modal" id="vinylEditModal"><div class="box">
+<h2 style="margin:0">Edit Vinyl Roll</h2>
+<div id="vinylEditTitle" class="amount-help"></div>
+<label>Remaining (yards)</label>
+<input id="vinylEditRemaining" type="number" min="0" step="0.01" inputmode="decimal">
+<div class="modal-actions"><button class="secondary" onclick="closeVinylEditModal()">Cancel</button><button class="primary" onclick="saveVinylEdit()">Save Changes</button></div>
+</div></div>
+
 <div class="modal" id="modal"><div class="box">
 <h2 style="margin:0">New Project</h2>
 <label>Client name</label><input id="client" placeholder="Enter client name">
@@ -122,8 +140,8 @@ input,select{width:100%;padding:12px;border:1px solid #d0d5dd;border-radius:10px
   2) Run the SQL in supabase-setup.sql.
   3) Put your Project URL and Publishable/Anon key below.
 */
-const SUPABASE_URL = "https://jxewdbxjozocitzgvuut.supabase.co";
-const SUPABASE_KEY = "sb_publishable_emtZOO9qjOKoVNVZWzyLCg_Mm6waGc5";
+const SUPABASE_URL = "PASTE_YOUR_SUPABASE_PROJECT_URL_HERE";
+const SUPABASE_KEY = "PASTE_YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY_HERE";
 
 const statuses=["Create Design","Start Printing","In Progress","Done"];
 const localKey = "divineProjects";
@@ -509,25 +527,51 @@ async function updateVinylRoll(roll){
   return true;
 }
 
-async function recordVinylUse(id){
+let vinylUseRollId=null;
+let vinylEditRollId=null;
+
+function openVinylUseModal(id){
   const roll=vinylRolls.find(r=>r.id===id);
-  if(!roll) return;
-  const amount=parseFloat(prompt(`How many yards did you just print/use from ${roll.color}?`, ""));
-  if(!Number.isFinite(amount) || amount<=0) return;
+  if(!roll) return alert("Could not find that vinyl roll.");
+  vinylUseRollId=id;
+  document.getElementById("vinylUseTitle").textContent=`${roll.color} • ${formatYards(roll.remaining)} yd currently remaining`;
+  document.getElementById("vinylUseAmount").value="";
+  document.getElementById("vinylUseRemaining").textContent="Enter the amount you printed. The remaining balance will be updated automatically.";
+  document.getElementById("vinylUseModal").classList.add("open");
+  setTimeout(()=>document.getElementById("vinylUseAmount").focus(),50);
+}
+function closeVinylUseModal(){document.getElementById("vinylUseModal").classList.remove("open");vinylUseRollId=null;}
+async function saveVinylUse(){
+  const roll=vinylRolls.find(r=>r.id===vinylUseRollId);
+  if(!roll) return alert("Could not find that vinyl roll.");
+  const amount=parseFloat(document.getElementById("vinylUseAmount").value);
+  if(!Number.isFinite(amount) || amount<=0) return alert("Enter a valid printed amount greater than 0.");
   if(amount>roll.remaining) return alert(`You only have ${formatYards(roll.remaining)} yd remaining on this roll.`);
-  roll.remaining=Math.max(0,roll.remaining-amount);
-  if(await updateVinylRoll(roll)) await loadVinyl();
+  const updated={...roll,remaining:Math.max(0,roll.remaining-amount)};
+  const button=document.querySelector('#vinylUseModal .primary');
+  button.disabled=true; button.textContent="Saving…";
+  try{if(await updateVinylRoll(updated)){closeVinylUseModal();await loadVinyl();}}finally{button.disabled=false;button.textContent="Save Amount";}
 }
 
-async function editVinyl(id){
+function openVinylEditModal(id){
   const roll=vinylRolls.find(r=>r.id===id);
-  if(!roll) return;
-  const remaining=parseFloat(prompt(`Current remaining yards for ${roll.color}:`, roll.remaining));
-  if(!Number.isFinite(remaining) || remaining<0 || remaining>roll.rollLength){
-    return alert("Enter a valid amount between 0 and the original roll length.");
-  }
-  roll.remaining=remaining;
-  if(await updateVinylRoll(roll)) await loadVinyl();
+  if(!roll) return alert("Could not find that vinyl roll.");
+  vinylEditRollId=id;
+  document.getElementById("vinylEditTitle").textContent=`${roll.color} • Original roll: ${formatYards(roll.rollLength)} yd`;
+  document.getElementById("vinylEditRemaining").value=roll.remaining;
+  document.getElementById("vinylEditModal").classList.add("open");
+  setTimeout(()=>document.getElementById("vinylEditRemaining").focus(),50);
+}
+function closeVinylEditModal(){document.getElementById("vinylEditModal").classList.remove("open");vinylEditRollId=null;}
+async function saveVinylEdit(){
+  const roll=vinylRolls.find(r=>r.id===vinylEditRollId);
+  if(!roll) return alert("Could not find that vinyl roll.");
+  const remaining=parseFloat(document.getElementById("vinylEditRemaining").value);
+  if(!Number.isFinite(remaining) || remaining<0 || remaining>roll.rollLength) return alert("Enter a valid amount between 0 and the original roll length.");
+  const updated={...roll,remaining};
+  const button=document.querySelector('#vinylEditModal .primary');
+  button.disabled=true; button.textContent="Saving…";
+  try{if(await updateVinylRoll(updated)){closeVinylEditModal();await loadVinyl();}}finally{button.disabled=false;button.textContent="Save Changes";}
 }
 
 async function removeVinyl(id){
@@ -575,8 +619,8 @@ function renderVinyl(){
         <div class="vinyl-stat"><div class="vinyl-label">Remaining</div><div class="vinyl-value ${r.remaining<=0?'vinyl-low':''}">${formatYards(r.remaining)} yd</div></div>
       </div>
       <div class="vinyl-actions">
-        <button class="primary" onclick="recordVinylUse('${String(r.id).replace(/'/g,"\\'")}')">Enter Printed Amount</button>
-        <button class="secondary" onclick="editVinyl('${String(r.id).replace(/'/g,"\\'")}')">Edit</button>
+        <button class="primary" onclick="openVinylUseModal('${String(r.id).replace(/'/g,"\\'")}')">Enter Printed Amount</button>
+        <button class="secondary" onclick="openVinylEditModal('${String(r.id).replace(/'/g,"\\'")}')">Edit</button>
         <button class="secondary" onclick="removeVinyl('${String(r.id).replace(/'/g,"\\'")}')">Delete</button>
       </div>`;
     grid.appendChild(card);
