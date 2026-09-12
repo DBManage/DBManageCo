@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DB Manage — Projects</title>
+<title>DB Manage</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:#f3f5f9;color:#172033}
@@ -28,6 +28,36 @@ input,select{width:100%;padding:12px;border:1px solid #d0d5dd;border-radius:10px
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
 @media(max-width:980px){.summary{grid-template-columns:repeat(2,1fr)}.board{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:760px){.summary{grid-template-columns:1fr}.board{grid-template-columns:1fr}.column{min-height:100px}header{padding:18px}.board{gap:12px}}
+
+.vinyl-page{display:none}
+.vinyl-page.active{display:block}
+.page-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}
+.tab-btn{background:#fff;border:1px solid #d0d5dd;color:#344054}
+.tab-btn.active{background:#111827;color:#fff;border-color:#111827}
+.vinyl-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.vinyl-header h2{margin:0;font-size:22px}
+.vinyl-header p{margin:5px 0 0;color:#667085;font-size:13px}
+.vinyl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.vinyl-card{background:#fff;border:1px solid #e4e7ec;border-radius:16px;padding:18px;box-shadow:0 4px 16px #1018280b}
+.vinyl-color{display:flex;align-items:center;gap:10px;font-size:19px;font-weight:850}
+.swatch{width:22px;height:22px;border-radius:50%;border:1px solid #d0d5dd;display:inline-block}
+.vinyl-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+.vinyl-stat{background:#f8fafc;border-radius:10px;padding:11px}
+.vinyl-stat span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#667085;font-weight:800}
+.vinyl-stat strong{display:block;font-size:19px;margin-top:3px}
+.remaining{font-size:27px!important}
+.usage-form{border-top:1px solid #eaecf0;padding-top:15px}
+.usage-row{display:flex;gap:8px;align-items:end}
+.usage-row>div{flex:1}
+.usage-row button{white-space:nowrap}
+.history{margin-top:15px;border-top:1px solid #eaecf0;padding-top:12px}
+.history-title{font-size:12px;font-weight:800;color:#475467;margin-bottom:7px}
+.history-row{display:grid;grid-template-columns:1fr 70px 90px;font-size:12px;padding:7px 0;border-bottom:1px solid #f2f4f7}
+.history-row:last-child{border-bottom:0}
+.muted{color:#98a2b3}
+.vinyl-empty{grid-column:1/-1;background:#fff;border:1px dashed #d0d5dd;border-radius:16px;padding:35px;text-align:center;color:#667085}
+@media(max-width:980px){.vinyl-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){.vinyl-grid{grid-template-columns:1fr}.usage-row{flex-direction:column;align-items:stretch}.usage-row button{width:100%}}
 </style>
 </head>
 <body>
@@ -37,6 +67,7 @@ input,select{width:100%;padding:12px;border:1px solid #d0d5dd;border-radius:10px
   <span id="syncStatus" style="font-size:12px;color:#98a2b3">Not connected</span>
   <button class="secondary" id="logoutBtn" style="display:none" onclick="logout()">Log out</button>
   <button class="primary" id="newProjectBtn" style="display:none" onclick="openModal()">+ New Project</button>
+  <button class="secondary" id="vinylBtn" style="display:none" onclick="showPage('vinyl')">Vinyl Management</button>
 </div>
 </header>
 <div id="authScreen" style="max-width:430px;margin:55px auto;padding:0 18px">
@@ -53,9 +84,24 @@ input,select{width:100%;padding:12px;border:1px solid #d0d5dd;border-radius:10px
   </div>
 </div>
 <main id="appMain" style="display:none">
-<div class="summary"><div class="summary-box"><div class="summary-label">Create Design</div><div class="summary-total" id="totalCreate">0</div></div><div class="summary-box"><div class="summary-label">Start Printing</div><div class="summary-total" id="totalPrint">0</div></div><div class="summary-box"><div class="summary-label">In Progress</div><div class="summary-total" id="totalProgress">0</div></div><div class="summary-box"><div class="summary-label">Done</div><div class="summary-total" id="totalDone">0</div></div></div>
-<div class="toolbar"><button class="secondary" onclick="clearAll()">Clear all projects</button></div>
-<div class="board" id="board"></div>
+<div class="page-tabs">
+  <button class="tab-btn active" id="projectsTab" onclick="showPage('projects')">Projects</button>
+  <button class="tab-btn" id="vinylTab" onclick="showPage('vinyl')">Vinyl Management</button>
+</div>
+
+<section id="projectsPage">
+  <div class="summary"><div class="summary-box"><div class="summary-label">Create Design</div><div class="summary-total" id="totalCreate">0</div></div><div class="summary-box"><div class="summary-label">Start Printing</div><div class="summary-total" id="totalPrint">0</div></div><div class="summary-box"><div class="summary-label">In Progress</div><div class="summary-total" id="totalProgress">0</div></div><div class="summary-box"><div class="summary-label">Done</div><div class="summary-total" id="totalDone">0</div></div></div>
+  <div class="toolbar"><button class="secondary" onclick="clearAll()">Clear all projects</button></div>
+  <div class="board" id="board"></div>
+</section>
+
+<section id="vinylPage" class="vinyl-page">
+  <div class="vinyl-header">
+    <div><h2>Vinyl Management</h2><p>Track how much vinyl is left on each roll.</p></div>
+    <button class="primary" onclick="openVinylModal()">+ Add Roll</button>
+  </div>
+  <div id="vinylGrid" class="vinyl-grid"></div>
+</section>
 </main>
 
 <div class="modal" id="modal"><div class="box">
@@ -67,6 +113,13 @@ input,select{width:100%;padding:12px;border:1px solid #d0d5dd;border-radius:10px
 <div class="modal-actions"><button class="secondary" onclick="closeModal()">Cancel</button><button class="primary" onclick="addProject()">Add Project</button></div>
 </div></div>
 
+
+<div class="modal" id="vinylModal"><div class="box">
+<h2 style="margin:0">Add Vinyl Roll</h2>
+<label>Vinyl color</label><input id="vinylColor" placeholder="Black">
+<label>Roll size (feet)</label><input id="vinylLength" type="number" min="0.1" step="0.1" placeholder="50">
+<div class="modal-actions"><button class="secondary" onclick="closeVinylModal()">Cancel</button><button class="primary" onclick="addVinylRoll()">Add Roll</button></div>
+</div></div>
 
 <script>
 /*
@@ -83,6 +136,7 @@ const localKey = "divineProjects";
 let projects = [];
 let currentUser = null;
 let realtimeChannel = null;
+let vinylRolls = [];
 
 const supabaseConfigured =
   SUPABASE_URL.startsWith("https://") &&
@@ -112,6 +166,7 @@ function showApp(){
   document.getElementById("appMain").style.display="block";
   document.getElementById("newProjectBtn").style.display="inline-block";
   document.getElementById("logoutBtn").style.display="inline-block";
+  document.getElementById("vinylBtn").style.display="inline-block";
 }
 
 function showAuth(){
@@ -119,6 +174,7 @@ function showAuth(){
   document.getElementById("appMain").style.display="none";
   document.getElementById("newProjectBtn").style.display="none";
   document.getElementById("logoutBtn").style.display="none";
+  document.getElementById("vinylBtn").style.display="none";
 }
 
 async function signIn(){
@@ -310,6 +366,129 @@ function render(){
   });
 }
 
+
+function showPage(page){
+  const projectsPage=document.getElementById("projectsPage");
+  const vinylPage=document.getElementById("vinylPage");
+  const projectsTab=document.getElementById("projectsTab");
+  const vinylTab=document.getElementById("vinylTab");
+  const isVinyl=page==="vinyl";
+  projectsPage.style.display=isVinyl?"none":"block";
+  vinylPage.classList.toggle("active",isVinyl);
+  projectsTab.classList.toggle("active",!isVinyl);
+  vinylTab.classList.toggle("active",isVinyl);
+  if(isVinyl) loadVinylRolls();
+}
+
+function openVinylModal(){
+  document.getElementById("vinylModal").classList.add("open");
+  document.getElementById("vinylColor").focus();
+}
+function closeVinylModal(){document.getElementById("vinylModal").classList.remove("open")}
+
+async function addVinylRoll(){
+  const color=document.getElementById("vinylColor").value.trim();
+  const feet=parseFloat(document.getElementById("vinylLength").value);
+  if(!color)return alert("Enter a vinyl color.");
+  if(!Number.isFinite(feet)||feet<=0)return alert("Enter a valid roll size.");
+
+  const inches=Math.round(feet*12*100)/100;
+  const row={id:Date.now(),user_id:currentUser.id,color,roll_inches:inches,remaining_inches:inches};
+  const {error}=await supabaseClient.from("vinyl_rolls").insert(row);
+  if(error){alert("Could not save vinyl roll: "+error.message);return;}
+  closeVinylModal();
+  document.getElementById("vinylColor").value="";
+  document.getElementById("vinylLength").value="";
+  await loadVinylRolls();
+}
+
+async function loadVinylRolls(){
+  if(!currentUser)return;
+  const {data,error}=await supabaseClient.from("vinyl_rolls")
+    .select("id,color,roll_inches,remaining_inches,created_at")
+    .eq("user_id",currentUser.id).order("created_at",{ascending:true});
+  if(error){console.error(error);return;}
+  vinylRolls=data||[];
+  renderVinyl();
+}
+
+async function recordUsage(id){
+  const input=document.getElementById("usage-"+id);
+  const used=parseFloat(input.value);
+  const roll=vinylRolls.find(r=>Number(r.id)===Number(id));
+  if(!roll)return;
+  if(!Number.isFinite(used)||used<=0)return alert("Enter how many inches you used.");
+  if(used>Number(roll.remaining_inches))return alert("You can't use more vinyl than is currently remaining on this roll.");
+
+  const remaining=Math.round((Number(roll.remaining_inches)-used)*100)/100;
+  const {error}=await supabaseClient.from("vinyl_usage").insert({
+    id:Date.now()+Math.floor(Math.random()*1000),
+    user_id:currentUser.id,roll_id:id,used_inches:used,remaining_inches:remaining
+  });
+  if(error){alert("Could not record usage: "+error.message);return;}
+
+  const {error:updateError}=await supabaseClient.from("vinyl_rolls")
+    .update({remaining_inches:remaining,updated_at:new Date().toISOString()})
+    .eq("id",id).eq("user_id",currentUser.id);
+  if(updateError){alert("Usage was recorded, but the roll could not be updated: "+updateError.message);return;}
+  input.value="";
+  await loadVinylRolls();
+}
+
+async function loadUsageHistory(id){
+  const {data,error}=await supabaseClient.from("vinyl_usage")
+    .select("used_inches,remaining_inches,created_at")
+    .eq("roll_id",id).eq("user_id",currentUser.id)
+    .order("created_at",{ascending:false}).limit(5);
+  if(error)return [];
+  return data||[];
+}
+
+async function renderVinyl(){
+  const grid=document.getElementById("vinylGrid");
+  if(!vinylRolls.length){
+    grid.innerHTML='<div class="vinyl-empty"><strong>No vinyl rolls yet.</strong><br><span class="muted">Add a roll to start tracking your inventory.</span></div>';
+    return;
+  }
+  grid.innerHTML="";
+  for(const r of vinylRolls){
+    const card=document.createElement("div");
+    card.className="vinyl-card";
+    const history=await loadUsageHistory(r.id);
+    const feet=(Number(r.remaining_inches)/12).toFixed(1);
+    const original=(Number(r.roll_inches)/12).toFixed(1);
+    const swatch=vinylSwatch(r.color);
+    card.innerHTML=`<div class="vinyl-color"><span class="swatch" style="background:${swatch}"></span>${esc(r.color)}</div>
+      <div class="vinyl-meta">
+        <div class="vinyl-stat"><span>Roll Size</span><strong>${original} ft</strong></div>
+        <div class="vinyl-stat"><span>Currently In Roll</span><strong>${fmtIn(r.remaining_inches)} in</strong></div>
+      </div>
+      <div class="usage-form">
+        <label style="margin-top:0">How much did you just print?</label>
+        <div class="usage-row"><div><input id="usage-${r.id}" type="number" min="0.01" max="${Number(r.remaining_inches)}" step="0.01" placeholder="Enter inches"></div>
+        <button class="primary" onclick="recordUsage(${r.id})">Record Usage</button></div>
+      </div>
+      <div class="vinyl-stat" style="margin-top:14px"><span>Remaining After This Print</span><strong class="remaining" id="preview-${r.id}">${fmtIn(r.remaining_inches)} in</strong><div class="muted" id="previewFt-${r.id}" style="font-size:12px;margin-top:3px">${feet} ft remaining</div></div>
+      <div class="history"><div class="history-title">Recent Usage</div>
+        ${history.length?history.map(h=>`<div class="history-row"><span>${new Date(h.created_at).toLocaleDateString()}</span><span>${fmtIn(h.used_inches)} in</span><span>${fmtIn(h.remaining_inches)} in left</span></div>`).join(""):'<div class="muted" style="font-size:12px">No usage recorded yet.</div>'}
+      </div>`;
+    grid.appendChild(card);
+    const usageInput=document.getElementById("usage-"+r.id);
+    usageInput.addEventListener("input",()=>{
+      const used=parseFloat(usageInput.value)||0;
+      const remaining=Math.max(0,Number(r.remaining_inches)-used);
+      document.getElementById("preview-"+r.id).textContent=fmtIn(remaining)+" in";
+      document.getElementById("previewFt-"+r.id).textContent=(remaining/12).toFixed(1)+" ft remaining";
+    });
+  }
+}
+function fmtIn(n){return Number(n).toLocaleString(undefined,{maximumFractionDigits:2})}
+function vinylSwatch(color){
+  const c=color.toLowerCase();
+  const map={black:"#111827",white:"#fff",red:"#ef4444",blue:"#3b82f6",green:"#22c55e",yellow:"#eab308",gold:"#d4af37",orange:"#f97316",purple:"#8b5cf6",pink:"#ec4899",gray:"#9ca3af",grey:"#9ca3af",silver:"#c0c0c0",brown:"#92400e"};
+  return map[c]||"#d0d5dd";
+}
+
 function esc(x){return String(x??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 
 async function startApp(){
@@ -331,7 +510,9 @@ async function startApp(){
       if(realtimeChannel) await supabaseClient.removeChannel(realtimeChannel);
       realtimeChannel=null;
       projects=[];
+      vinylRolls=[];
       render();
+      renderVinyl();
       showAuth();
       setSyncStatus("Not connected");
     }
@@ -344,19 +525,30 @@ async function onSignedIn(session){
   setSyncStatus("Connecting…");
   await migrateLocalProjects();
   await loadProjects();
+  await loadVinylRolls();
 
   if(realtimeChannel) await supabaseClient.removeChannel(realtimeChannel);
 
   realtimeChannel=supabaseClient
-    .channel("db-manage-projects")
+    .channel("db-manage-live")
     .on("postgres_changes",{
       event:"*",
       schema:"public",
       table:"projects",
       filter:`user_id=eq.${currentUser.id}`
-    },async ()=>{
-      await loadProjects();
-    })
+    },async ()=>{ await loadProjects(); })
+    .on("postgres_changes",{
+      event:"*",
+      schema:"public",
+      table:"vinyl_rolls",
+      filter:`user_id=eq.${currentUser.id}`
+    },async ()=>{ await loadVinylRolls(); })
+    .on("postgres_changes",{
+      event:"*",
+      schema:"public",
+      table:"vinyl_usage",
+      filter:`user_id=eq.${currentUser.id}`
+    },async ()=>{ await loadVinylRolls(); })
     .subscribe((status)=>{
       if(status==="SUBSCRIBED") setSyncStatus("Live sync ✓",true);
     });
